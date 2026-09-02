@@ -58,6 +58,13 @@ class CreateVMPayload(BaseModel):
     disk: int = Field(default=10, ge=1, le=256)
 
 
+class UpdateVMPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    arch: str
+    ram: int = Field(ge=128, le=16384)
+    cpus: int = Field(ge=1, le=8)
+
+
 class AddDiskPayload(BaseModel):
     name: str = Field(default="Data disk", min_length=1, max_length=64)
     size_gb: int = Field(default=10, ge=1, le=512)
@@ -447,6 +454,57 @@ def create_vm(payload: CreateVMPayload, request: Request):
     with db() as conn:
         row = get_vm_for_user(conn, vm_id, user["id"])
         return serialize_vm(conn, row)
+
+
+@app.get("/api/vms/{vm_id}")
+def get_vm(vm_id: str, request: Request):
+    user = require_user(request)
+    with db() as conn:
+        row = get_vm_for_user(conn, vm_id, user["id"])
+        return serialize_vm(conn, row)
+
+
+@app.patch("/api/vms/{vm_id}")
+def update_vm(vm_id: str, payload: UpdateVMPayload, request: Request):
+    user = require_user(request)
+
+    if payload.arch not in SUPPORTED_ARCHES:
+        raise HTTPException(
+            status_code=400,
+            detail="Supported architectures: x86_64, i386",
+        )
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="VM name cannot be empty")
+
+    with db() as conn:
+        row = get_vm_for_user(conn, vm_id, user["id"])
+
+        if get_pid(user["id"], vm_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Stop the VM before changing hardware settings",
+            )
+
+        conn.execute(
+            """
+            UPDATE vms
+            SET name = ?, arch = ?, ram_mb = ?, cpus = ?
+            WHERE id = ? AND owner_id = ?
+            """,
+            (
+                name,
+                payload.arch,
+                payload.ram,
+                payload.cpus,
+                vm_id,
+                user["id"],
+            ),
+        )
+
+        updated = get_vm_for_user(conn, vm_id, user["id"])
+        return serialize_vm(conn, updated)
 
 
 @app.delete("/api/vms/{vm_id}")

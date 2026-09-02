@@ -15,12 +15,25 @@ const vmForm = document.getElementById("vmForm");
 
 const settingsDialog = document.getElementById("settingsDialog");
 const settingsDialogTitle = document.getElementById("settingsDialogTitle");
-const diskList = document.getElementById("diskList");
-const diskForm = document.getElementById("diskForm");
+
+const generalTab = document.getElementById("generalTab");
 const disksTab = document.getElementById("disksTab");
 const mediaTab = document.getElementById("mediaTab");
+
+const generalPanel = document.getElementById("generalPanel");
 const disksPanel = document.getElementById("disksPanel");
 const mediaPanel = document.getElementById("mediaPanel");
+
+const generalForm = document.getElementById("generalForm");
+const settingsVmName = document.getElementById("settingsVmName");
+const settingsVmArch = document.getElementById("settingsVmArch");
+const settingsVmRam = document.getElementById("settingsVmRam");
+const settingsVmCpu = document.getElementById("settingsVmCpu");
+const generalRunningHint = document.getElementById("generalRunningHint");
+const saveGeneralSettings = document.getElementById("saveGeneralSettings");
+
+const diskList = document.getElementById("diskList");
+const diskForm = document.getElementById("diskForm");
 
 const cdromCurrent = document.getElementById("cdromCurrent");
 const floppyCurrent = document.getElementById("floppyCurrent");
@@ -331,15 +344,48 @@ consoleDialog.addEventListener("cancel", event => {
 
 
 function setSettingsTab(tab) {
-  const showDisks = tab === "disks";
-  disksTab.classList.toggle("active", showDisks);
-  mediaTab.classList.toggle("active", !showDisks);
-  disksPanel.classList.toggle("hidden", !showDisks);
-  mediaPanel.classList.toggle("hidden", showDisks);
+  const tabs = {
+    general: [generalTab, generalPanel],
+    disks: [disksTab, disksPanel],
+    media: [mediaTab, mediaPanel]
+  };
+
+  for (const [name, [button, panel]] of Object.entries(tabs)) {
+    const active = name === tab;
+    button.classList.toggle("active", active);
+    panel.classList.toggle("hidden", !active);
+  }
 }
 
 
-disksTab.addEventListener("click", () => setSettingsTab("disks"));
+function loadGeneralPanel() {
+  if (!activeVM) return;
+
+  settingsVmName.value = activeVM.name;
+  settingsVmArch.value = activeVM.arch;
+  settingsVmRam.value = String(activeVM.ram);
+  settingsVmCpu.value = String(activeVM.cpus);
+
+  const locked = activeVM.running;
+  settingsVmName.disabled = locked;
+  settingsVmArch.disabled = locked;
+  settingsVmRam.disabled = locked;
+  settingsVmCpu.disabled = locked;
+  saveGeneralSettings.disabled = locked;
+  generalRunningHint.classList.toggle("hidden", !locked);
+}
+
+
+generalTab.addEventListener("click", () => {
+  setSettingsTab("general");
+  loadGeneralPanel();
+});
+
+disksTab.addEventListener("click", async () => {
+  setSettingsTab("disks");
+  await loadDisks();
+});
+
 mediaTab.addEventListener("click", async () => {
   setSettingsTab("media");
   await loadMediaPanel();
@@ -349,10 +395,45 @@ mediaTab.addEventListener("click", async () => {
 async function openSettings(vm) {
   activeVM = vm;
   settingsDialogTitle.textContent = `${vm.name} — Nastavení`;
-  setSettingsTab("disks");
-  await loadDisks();
+  setSettingsTab("general");
+  loadGeneralPanel();
   settingsDialog.showModal();
 }
+
+
+generalForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!activeVM) return;
+
+  saveGeneralSettings.disabled = true;
+
+  try {
+    const updated = await api(`/api/vms/${encodeURIComponent(activeVM.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: settingsVmName.value.trim(),
+        arch: settingsVmArch.value,
+        ram: Number(settingsVmRam.value),
+        cpus: Number(settingsVmCpu.value)
+      })
+    });
+
+    activeVM = updated;
+    settingsDialogTitle.textContent = `${updated.name} — Nastavení`;
+    await loadVMs();
+
+    const fresh = vms.find(vm => vm.id === updated.id);
+    if (fresh) activeVM = fresh;
+
+    loadGeneralPanel();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    if (activeVM && !activeVM.running) {
+      saveGeneralSettings.disabled = false;
+    }
+  }
+});
 
 
 async function loadDisks() {

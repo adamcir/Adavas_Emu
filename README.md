@@ -7,7 +7,8 @@ Web QEMU manager by Adava Development.
 - Login / registration and per-user sessions
 - Multiple VM instances per user
 - Multiple qcow2 hard disks
-- VM Settings dialog with **Disks** and **Media**
+- VM Settings dialog with **General**, **Disks** and **Media**
+- Rename VM and change architecture, RAM and vCPU count while stopped
 - CD/DVD ISO attachment from `/data/media`
 - Floppy image attachment (`.img`, `.ima`, `.flp`, `.raw`) from `/data/media`
 - noVNC console with fullscreen/maximize
@@ -63,3 +64,18 @@ docker restart adavas-emu-backend
 GNU GPLv3.
 
 Copyright © 2026 Adava Development.
+
+
+## VM hardware settings
+
+Open **Nastavení → Obecné** to change:
+
+- VM name
+- Architecture (`x86_64` or `i386`)
+- RAM
+- vCPU count
+
+The VM must be stopped before these settings can be changed.
+
+`arm`/`aarch64` are intentionally not shown yet because the current Docker image only
+installs `qemu-system-x86`. Add `qemu-system-arm` before enabling ARM guests.

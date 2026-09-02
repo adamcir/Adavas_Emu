@@ -128,11 +128,57 @@
       </div>
 
       <div class="settings-tabs">
-        <button id="disksTab" class="settings-tab active" type="button">Disky</button>
+        <button id="generalTab" class="settings-tab active" type="button">Obecné</button>
+        <button id="disksTab" class="settings-tab" type="button">Disky</button>
         <button id="mediaTab" class="settings-tab" type="button">Média</button>
       </div>
 
-      <section id="disksPanel">
+      <section id="generalPanel">
+        <form id="generalForm" class="general-form">
+          <label>
+            Název VM
+            <input id="settingsVmName" maxlength="64" required>
+          </label>
+
+          <label>
+            Architektura
+            <select id="settingsVmArch">
+              <option value="x86_64">x86_64</option>
+              <option value="i386">i386</option>
+            </select>
+          </label>
+
+          <label>
+            RAM
+            <select id="settingsVmRam">
+              <option value="256">256 MB</option>
+              <option value="512">512 MB</option>
+              <option value="1024">1 GB</option>
+              <option value="2048">2 GB</option>
+              <option value="4096">4 GB</option>
+              <option value="8192">8 GB</option>
+            </select>
+          </label>
+
+          <label>
+            CPU
+            <select id="settingsVmCpu">
+              <option value="1">1 vCPU</option>
+              <option value="2">2 vCPU</option>
+              <option value="4">4 vCPU</option>
+              <option value="8">8 vCPU</option>
+            </select>
+          </label>
+
+          <p id="generalRunningHint" class="hint hidden">
+            Pro změnu názvu nebo hardwaru VM nejdřív zastav.
+          </p>
+
+          <button id="saveGeneralSettings" type="submit">Uložit změny</button>
+        </form>
+      </section>
+
+      <section id="disksPanel" class="hidden">
         <div id="diskList" class="disk-list"></div>
 
         <form id="diskForm" class="disk-form">
