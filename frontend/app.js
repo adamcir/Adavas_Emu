@@ -1,8 +1,10 @@
 const vmGrid = document.getElementById("vmGrid");
 const vmDialog = document.getElementById("vmDialog");
 const vmForm = document.getElementById("vmForm");
+
 const consoleDialog = document.getElementById("consoleDialog");
 const consoleTitle = document.getElementById("consoleTitle");
+const consoleFrame = document.getElementById("consoleFrame");
 
 let vms = [];
 
@@ -47,7 +49,8 @@ function render() {
   for (const vm of vms) {
     const card = document.createElement("article");
 
-    card.className = `vm-card ${vm.running ? "running" : ""}`;
+    card.className =
+      `vm-card ${vm.running ? "running" : ""}`;
 
     card.innerHTML = `
       <h3>${escapeHtml(vm.name)}</h3>
@@ -93,13 +96,16 @@ function render() {
 
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  }[char]));
+  return String(value).replace(
+    /[&<>"']/g,
+    char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[char])
+  );
 }
 
 
@@ -165,82 +171,125 @@ async function stopVM(vm) {
 }
 
 
-vmGrid.addEventListener("click", async event => {
-  const button = event.target.closest("button");
-
-  if (!button) {
+function openConsole(vm) {
+  if (!vm.running) {
+    alert("Virtuální stroj není spuštěný.");
     return;
   }
 
-  const vm = vms.find(
-    item => item.id === button.dataset.id
-  );
+  consoleTitle.textContent =
+    `${vm.name} — Console`;
 
-  if (!vm) {
-    console.error(
-      "VM not found:",
-      button.dataset.id
+  consoleFrame.src =
+    "/novnc/vnc.html" +
+    "?autoconnect=true" +
+    "&resize=scale" +
+    "&path=websockify";
+
+  consoleDialog.showModal();
+}
+
+
+function closeConsole() {
+  /*
+   * Vyprázdněním src ukončíme noVNC spojení
+   * a tím i WebSocket do websockify.
+   */
+  consoleFrame.src = "";
+
+  consoleDialog.close();
+}
+
+
+vmGrid.addEventListener(
+  "click",
+  async event => {
+
+    const button =
+      event.target.closest("button");
+
+    if (!button) {
+      return;
+    }
+
+    const vm = vms.find(
+      item => item.id === button.dataset.id
     );
 
-    return;
-  }
+    if (!vm) {
+      console.error(
+        "VM not found:",
+        button.dataset.id
+      );
 
-  const action = button.dataset.action;
+      return;
+    }
+
+    const action =
+      button.dataset.action;
 
 
-  if (action === "toggle") {
+    if (action === "toggle") {
+      button.disabled = true;
 
-    button.disabled = true;
-
-    try {
-
-      if (vm.running) {
-        await stopVM(vm);
-      } else {
-        await startVM(vm);
+      try {
+        if (vm.running) {
+          await stopVM(vm);
+        } else {
+          await startVM(vm);
+        }
+      } finally {
+        button.disabled = false;
       }
+    }
 
-    } finally {
-      button.disabled = false;
+
+    if (action === "console") {
+      openConsole(vm);
     }
   }
-
-
-  if (action === "console") {
-
-    consoleTitle.textContent =
-      `${vm.name} — Console`;
-
-    consoleDialog.showModal();
-  }
-});
+);
 
 
 document
   .getElementById("newVmBtn")
-  .addEventListener("click", () => {
+  .addEventListener(
+    "click",
+    () => {
 
-    vmDialog.showModal();
+      vmDialog.showModal();
 
-  });
+    }
+  );
 
 
 document
   .getElementById("cancelBtn")
-  .addEventListener("click", () => {
+  .addEventListener(
+    "click",
+    () => {
 
-    vmDialog.close();
+      vmDialog.close();
 
-  });
+    }
+  );
 
 
 document
   .getElementById("closeConsole")
-  .addEventListener("click", () => {
+  .addEventListener(
+    "click",
+    closeConsole
+  );
 
-    consoleDialog.close();
 
-  });
+consoleDialog.addEventListener(
+  "cancel",
+  event => {
+    event.preventDefault();
+    closeConsole();
+  }
+);
 
 
 vmForm.addEventListener(
@@ -284,7 +333,7 @@ vmForm.addEventListener(
 
 
     /*
-     * Create VM API zatím ještě nemáme.
+     * Create VM API zatím není napojené.
      *
      * Později:
      *
@@ -321,7 +370,10 @@ async function refreshLoop() {
   try {
     await loadVMs();
   } catch (error) {
-    console.error(error);
+    console.error(
+      "VM refresh failed:",
+      error
+    );
   }
 
   setTimeout(
@@ -337,4 +389,3 @@ setTimeout(
   refreshLoop,
   3000
 );
-
