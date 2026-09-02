@@ -87,19 +87,20 @@
   </dialog>
 
   <dialog id="consoleDialog" class="console-dialog">
-    <div class="console-window">
-      <div class="console-header">
-        <strong id="consoleTitle">VM Console</strong>
-        <button id="closeConsole" class="secondary">Zavřít</button>
-      </div>
-      <div class="screen">
-        <div>
-          <div class="screen-title">Adava's Emu Console</div>
-          <div class="screen-subtitle">noVNC / QEMU output placeholder</div>
-        </div>
-      </div>
-    </div>
-  </dialog>
+	  <div class="console-window">
+		<div class="console-header">
+		  <strong id="consoleTitle">VM Console</strong>
+		  <button id="closeConsole" class="secondary">Zavřít</button>
+		</div>
+
+		<iframe
+		  id="consoleFrame"
+		  class="console-frame"
+		  src=""
+		  allow="clipboard-read; clipboard-write"
+		></iframe>
+	  </div>
+	</dialog>
 
   <footer>
     Copyright © 2026 Adava Development · GNU GPLv3
