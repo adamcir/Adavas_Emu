@@ -7,28 +7,63 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div>
+  <section id="authView" class="auth-view">
+    <div class="auth-card">
       <h1>Adava's Emu</h1>
       <p>Web QEMU Console</p>
-    </div>
-    <div class="user">
-      <span>adava</span>
-      <button class="secondary">Odhlásit</button>
-    </div>
-  </header>
 
-  <main>
-    <section class="toolbar">
-      <div>
-        <h2>Moje virtuální stroje</h2>
-        <p>Správa QEMU instancí</p>
+      <div class="auth-tabs">
+        <button id="loginTab" class="auth-tab active" type="button">Přihlášení</button>
+        <button id="registerTab" class="auth-tab" type="button">Registrace</button>
       </div>
-      <button id="newVmBtn">+ Nová VM</button>
-    </section>
 
-    <section id="vmGrid" class="vm-grid"></section>
-  </main>
+      <form id="authForm">
+        <label>
+          Uživatelské jméno
+          <input id="authUsername" autocomplete="username" minlength="3" maxlength="32" required>
+        </label>
+
+        <label>
+          Heslo
+          <input id="authPassword" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+
+        <div id="authError" class="error-message"></div>
+        <button id="authSubmit" type="submit">Přihlásit</button>
+      </form>
+
+      <small>Copyright © 2026 Adava Development · GNU GPLv3</small>
+    </div>
+  </section>
+
+  <div id="appView" class="hidden">
+    <header class="topbar">
+      <div>
+        <h1>Adava's Emu</h1>
+        <p>Web QEMU Console</p>
+      </div>
+      <div class="user">
+        <span id="currentUsername"></span>
+        <button id="logoutBtn" class="secondary">Odhlásit</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="toolbar">
+        <div>
+          <h2>Moje virtuální stroje</h2>
+          <p>Každý účet má vlastní VM a disky.</p>
+        </div>
+        <button id="newVmBtn">+ Nová VM</button>
+      </section>
+
+      <section id="vmGrid" class="vm-grid"></section>
+    </main>
+
+    <footer>
+      Copyright © 2026 Adava Development · GNU GPLv3
+    </footer>
+  </div>
 
   <dialog id="vmDialog">
     <form id="vmForm">
@@ -36,7 +71,7 @@
 
       <label>
         Název
-        <input id="vmName" type="text" value="Nová VM" required>
+        <input id="vmName" type="text" value="Nová VM" maxlength="64" required>
       </label>
 
       <label>
@@ -44,8 +79,6 @@
         <select id="vmArch">
           <option value="x86_64">x86_64</option>
           <option value="i386">i386</option>
-          <option value="aarch64">aarch64</option>
-          <option value="arm">arm</option>
         </select>
       </label>
 
@@ -70,12 +103,13 @@
       </label>
 
       <label>
-        Disk
+        Systémový disk
         <select id="vmDisk">
           <option value="5">5 GB</option>
           <option value="10" selected>10 GB</option>
           <option value="20">20 GB</option>
           <option value="40">40 GB</option>
+          <option value="80">80 GB</option>
         </select>
       </label>
 
@@ -86,25 +120,54 @@
     </form>
   </dialog>
 
+  <dialog id="diskDialog" class="disk-dialog">
+    <div class="dialog-body">
+      <div class="dialog-title-row">
+        <h2 id="diskDialogTitle">Disky</h2>
+        <button id="closeDiskDialog" class="secondary" type="button">Zavřít</button>
+      </div>
+
+      <div id="diskList" class="disk-list"></div>
+
+      <form id="diskForm" class="disk-form">
+        <h3>Přidat disk</h3>
+        <label>
+          Název
+          <input id="diskName" value="Data disk" maxlength="64" required>
+        </label>
+        <label>
+          Velikost
+          <select id="diskSize">
+            <option value="5">5 GB</option>
+            <option value="10" selected>10 GB</option>
+            <option value="20">20 GB</option>
+            <option value="40">40 GB</option>
+            <option value="80">80 GB</option>
+          </select>
+        </label>
+        <button type="submit">Přidat disk</button>
+      </form>
+    </div>
+  </dialog>
+
   <dialog id="consoleDialog" class="console-dialog">
-	  <div class="console-window">
-		<div class="console-header">
-		  <strong id="consoleTitle">VM Console</strong>
-		  <button id="closeConsole" class="secondary">Zavřít</button>
-		</div>
+    <div id="consoleWindow" class="console-window">
+      <div class="console-header">
+        <strong id="consoleTitle">VM Console</strong>
+        <div class="console-actions">
+          <button id="maximizeConsole" class="secondary" type="button">Maximalizovat</button>
+          <button id="closeConsole" class="secondary" type="button">Zavřít</button>
+        </div>
+      </div>
 
-		<iframe
-		  id="consoleFrame"
-		  class="console-frame"
-		  src=""
-		  allow="clipboard-read; clipboard-write"
-		></iframe>
-	  </div>
-	</dialog>
-
-  <footer>
-    Copyright © 2026 Adava Development · GNU GPLv3
-  </footer>
+      <iframe
+        id="consoleFrame"
+        class="console-frame"
+        src=""
+        allow="clipboard-read; clipboard-write; fullscreen"
+      ></iframe>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

@@ -1,46 +1,189 @@
+const authView = document.getElementById("authView");
+const appView = document.getElementById("appView");
+const authForm = document.getElementById("authForm");
+const authUsername = document.getElementById("authUsername");
+const authPassword = document.getElementById("authPassword");
+const authSubmit = document.getElementById("authSubmit");
+const authError = document.getElementById("authError");
+const loginTab = document.getElementById("loginTab");
+const registerTab = document.getElementById("registerTab");
+const currentUsername = document.getElementById("currentUsername");
+
 const vmGrid = document.getElementById("vmGrid");
 const vmDialog = document.getElementById("vmDialog");
 const vmForm = document.getElementById("vmForm");
 
+const diskDialog = document.getElementById("diskDialog");
+const diskDialogTitle = document.getElementById("diskDialogTitle");
+const diskList = document.getElementById("diskList");
+const diskForm = document.getElementById("diskForm");
+
 const consoleDialog = document.getElementById("consoleDialog");
+const consoleWindow = document.getElementById("consoleWindow");
 const consoleTitle = document.getElementById("consoleTitle");
 const consoleFrame = document.getElementById("consoleFrame");
+const maximizeConsole = document.getElementById("maximizeConsole");
 
+let authMode = "login";
+let currentUser = null;
 let vms = [];
+let activeDiskVM = null;
+let refreshTimer = null;
+
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.body ? {"Content-Type": "application/json"} : {}),
+      ...(options.headers || {})
+    }
+  });
+
+  if (response.status === 401) {
+    showAuth();
+    throw new Error("Nejste přihlášen.");
+  }
+
+  let data = null;
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    data = await response.json();
+  } else {
+    data = await response.text();
+  }
+
+  if (!response.ok) {
+    const message =
+      data && typeof data === "object"
+        ? (data.detail || JSON.stringify(data))
+        : String(data || `HTTP ${response.status}`);
+
+    throw new Error(message);
+  }
+
+  return data;
+}
+
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[char]));
+}
+
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const register = mode === "register";
+
+  loginTab.classList.toggle("active", !register);
+  registerTab.classList.toggle("active", register);
+  authSubmit.textContent = register ? "Registrovat" : "Přihlásit";
+  authPassword.autocomplete = register ? "new-password" : "current-password";
+  authError.textContent = "";
+}
+
+
+function showAuth() {
+  currentUser = null;
+  appView.classList.add("hidden");
+  authView.classList.remove("hidden");
+
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+
+async function showApp(user) {
+  currentUser = user;
+  currentUsername.textContent = user.username;
+  authView.classList.add("hidden");
+  appView.classList.remove("hidden");
+  await loadVMs();
+  scheduleRefresh();
+}
+
+
+async function checkSession() {
+  try {
+    const user = await api("/api/auth/me");
+    await showApp(user);
+  } catch {
+    showAuth();
+  }
+}
+
+
+loginTab.addEventListener("click", () => setAuthMode("login"));
+registerTab.addEventListener("click", () => setAuthMode("register"));
+
+
+authForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  authError.textContent = "";
+  authSubmit.disabled = true;
+
+  try {
+    const user = await api(`/api/auth/${authMode}`, {
+      method: "POST",
+      body: JSON.stringify({
+        username: authUsername.value.trim(),
+        password: authPassword.value
+      })
+    });
+
+    authPassword.value = "";
+    await showApp(user);
+  } catch (error) {
+    authError.textContent = error.message;
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try {
+    await api("/api/auth/logout", {method: "POST"});
+  } finally {
+    showAuth();
+  }
+});
 
 
 async function loadVMs() {
   try {
-    const response = await fetch("/api/vms");
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    vms = await response.json();
-    render();
+    vms = await api("/api/vms");
+    renderVMs();
   } catch (error) {
-    console.error("Failed to load VMs:", error);
+    if (!currentUser) return;
 
     vmGrid.innerHTML = `
       <article class="vm-card">
         <h3>Chyba backendu</h3>
-        <p>Nepodařilo se načíst seznam virtuálních strojů.</p>
-        <p>${escapeHtml(String(error))}</p>
+        <p>${escapeHtml(error.message)}</p>
       </article>
     `;
   }
 }
 
 
-function render() {
+function renderVMs() {
   vmGrid.innerHTML = "";
 
   if (vms.length === 0) {
     vmGrid.innerHTML = `
-      <article class="vm-card">
+      <article class="vm-card empty-card">
         <h3>Žádné virtuální stroje</h3>
-        <p>Zatím není vytvořen žádný virtuální stroj.</p>
+        <p>Klikni na <strong>+ Nová VM</strong> a vytvoř první instanci.</p>
       </article>
     `;
     return;
@@ -48,44 +191,38 @@ function render() {
 
   for (const vm of vms) {
     const card = document.createElement("article");
-
-    card.className =
-      `vm-card ${vm.running ? "running" : ""}`;
+    card.className = `vm-card ${vm.running ? "running" : ""}`;
 
     card.innerHTML = `
-      <h3>${escapeHtml(vm.name)}</h3>
-
-      <div class="status">
-        <span class="status-dot"></span>
-        ${vm.running ? "Running" : "Stopped"}
+      <div class="vm-card-title">
+        <div>
+          <h3>${escapeHtml(vm.name)}</h3>
+          <div class="status">
+            <span class="status-dot"></span>
+            ${vm.running ? "Running" : "Stopped"}
+          </div>
+        </div>
+        <button class="danger compact" data-action="delete" data-id="${vm.id}" title="Smazat VM">×</button>
       </div>
 
       <div class="vm-specs">
-        <span>Architecture</span>
-        <strong>${escapeHtml(vm.arch)}</strong>
-
-        <span>RAM</span>
-        <strong>${vm.ram} MB</strong>
-
-        <span>CPU</span>
-        <strong>${vm.cpus} vCPU</strong>
-
-        <span>Disk</span>
-        <strong>${vm.disk} GB</strong>
+        <span>Architecture</span><strong>${escapeHtml(vm.arch)}</strong>
+        <span>RAM</span><strong>${vm.ram} MB</strong>
+        <span>CPU</span><strong>${vm.cpus} vCPU</strong>
+        <span>Disky</span><strong>${vm.disk_count} / ${vm.disk} GB</strong>
       </div>
 
       <div class="vm-actions">
-        <button
-          data-action="toggle"
-          data-id="${vm.id}">
+        <button data-action="toggle" data-id="${vm.id}">
           ${vm.running ? "Stop" : "Start"}
         </button>
 
-        <button
-          class="secondary"
-          data-action="console"
-          data-id="${vm.id}">
+        <button class="secondary" data-action="console" data-id="${vm.id}">
           Console
+        </button>
+
+        <button class="secondary" data-action="disks" data-id="${vm.id}">
+          Disky
         </button>
       </div>
     `;
@@ -95,79 +232,30 @@ function render() {
 }
 
 
-function escapeHtml(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    char => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;"
-    }[char])
-  );
-}
-
-
 async function startVM(vm) {
-  try {
-    const response = await fetch(
-      `/api/vms/${encodeURIComponent(vm.id)}/start`,
-      {
-        method: "POST"
-      }
-    );
-
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message);
-    }
-
-    const result = await response.json();
-
-    console.log("VM start result:", result);
-
-    await loadVMs();
-
-  } catch (error) {
-    console.error("Failed to start VM:", error);
-
-    alert(
-      "Nepodařilo se spustit VM.\n\n" +
-      error
-    );
-  }
+  await api(`/api/vms/${encodeURIComponent(vm.id)}/start`, {method: "POST"});
+  await loadVMs();
 }
 
 
 async function stopVM(vm) {
-  try {
-    const response = await fetch(
-      `/api/vms/${encodeURIComponent(vm.id)}/stop`,
-      {
-        method: "POST"
-      }
-    );
+  await api(`/api/vms/${encodeURIComponent(vm.id)}/stop`, {method: "POST"});
+  await loadVMs();
+}
 
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message);
-    }
 
-    const result = await response.json();
-
-    console.log("VM stop result:", result);
-
-    await loadVMs();
-
-  } catch (error) {
-    console.error("Failed to stop VM:", error);
-
-    alert(
-      "Nepodařilo se zastavit VM.\n\n" +
-      error
-    );
+async function deleteVM(vm) {
+  if (vm.running) {
+    alert("Nejdřív VM zastav.");
+    return;
   }
+
+  if (!confirm(`Opravdu smazat "${vm.name}" včetně všech disků?`)) {
+    return;
+  }
+
+  await api(`/api/vms/${encodeURIComponent(vm.id)}`, {method: "DELETE"});
+  await loadVMs();
 }
 
 
@@ -177,215 +265,239 @@ function openConsole(vm) {
     return;
   }
 
-  consoleTitle.textContent =
-    `${vm.name} — Console`;
+  consoleTitle.textContent = `${vm.name} — Console`;
+
+  const wsPath = `ws/vms/${encodeURIComponent(vm.id)}/console`;
 
   consoleFrame.src =
     "/novnc/vnc.html" +
     "?autoconnect=true" +
     "&resize=scale" +
-    "&path=websockify";
+    `&path=${encodeURIComponent(wsPath)}`;
 
   consoleDialog.showModal();
 }
 
 
-function closeConsole() {
-  /*
-   * Vyprázdněním src ukončíme noVNC spojení
-   * a tím i WebSocket do websockify.
-   */
-  consoleFrame.src = "";
+async function closeConsole() {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen().catch(() => {});
+  }
 
+  consoleFrame.src = "";
   consoleDialog.close();
 }
 
 
-vmGrid.addEventListener(
-  "click",
-  async event => {
-
-    const button =
-      event.target.closest("button");
-
-    if (!button) {
-      return;
-    }
-
-    const vm = vms.find(
-      item => item.id === button.dataset.id
-    );
-
-    if (!vm) {
-      console.error(
-        "VM not found:",
-        button.dataset.id
-      );
-
-      return;
-    }
-
-    const action =
-      button.dataset.action;
-
-
-    if (action === "toggle") {
-      button.disabled = true;
-
-      try {
-        if (vm.running) {
-          await stopVM(vm);
-        } else {
-          await startVM(vm);
-        }
-      } finally {
-        button.disabled = false;
-      }
-    }
-
-
-    if (action === "console") {
-      openConsole(vm);
-    }
-  }
-);
-
-
-document
-  .getElementById("newVmBtn")
-  .addEventListener(
-    "click",
-    () => {
-
-      vmDialog.showModal();
-
-    }
-  );
-
-
-document
-  .getElementById("cancelBtn")
-  .addEventListener(
-    "click",
-    () => {
-
-      vmDialog.close();
-
-    }
-  );
-
-
-document
-  .getElementById("closeConsole")
-  .addEventListener(
-    "click",
-    closeConsole
-  );
-
-
-consoleDialog.addEventListener(
-  "cancel",
-  event => {
-    event.preventDefault();
-    closeConsole();
-  }
-);
-
-
-vmForm.addEventListener(
-  "submit",
-  async event => {
-
-    event.preventDefault();
-
-    const name =
-      document.getElementById("vmName").value;
-
-    const arch =
-      document.getElementById("vmArch").value;
-
-    const ram =
-      Number(
-        document.getElementById("vmRam").value
-      );
-
-    const cpus =
-      Number(
-        document.getElementById("vmCpu").value
-      );
-
-    const disk =
-      Number(
-        document.getElementById("vmDisk").value
-      );
-
-
-    console.log(
-      "Create VM requested:",
-      {
-        name,
-        arch,
-        ram,
-        cpus,
-        disk
-      }
-    );
-
-
-    /*
-     * Create VM API zatím není napojené.
-     *
-     * Později:
-     *
-     * const response = await fetch(
-     *   "/api/vms",
-     *   {
-     *     method: "POST",
-     *     headers: {
-     *       "Content-Type": "application/json"
-     *     },
-     *     body: JSON.stringify({
-     *       name,
-     *       arch,
-     *       ram,
-     *       cpus,
-     *       disk
-     *     })
-     *   }
-     * );
-     */
-
-
-    alert(
-      "Vytváření vlastních VM zatím není " +
-      "napojené na backend."
-    );
-
-    vmDialog.close();
-  }
-);
-
-
-async function refreshLoop() {
+maximizeConsole.addEventListener("click", async () => {
   try {
-    await loadVMs();
+    if (!document.fullscreenElement) {
+      await consoleWindow.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
   } catch (error) {
-    console.error(
-      "VM refresh failed:",
-      error
-    );
+    alert(`Maximalizaci se nepodařilo zapnout: ${error.message}`);
   }
+});
 
-  setTimeout(
-    refreshLoop,
-    3000
-  );
+
+document.addEventListener("fullscreenchange", () => {
+  maximizeConsole.textContent =
+    document.fullscreenElement ? "Obnovit" : "Maximalizovat";
+});
+
+
+document.getElementById("closeConsole").addEventListener("click", closeConsole);
+
+consoleDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeConsole();
+});
+
+
+async function openDisks(vm) {
+  activeDiskVM = vm;
+  diskDialogTitle.textContent = `${vm.name} — Disky`;
+  await loadDisks();
+  diskDialog.showModal();
 }
 
 
-loadVMs();
+async function loadDisks() {
+  if (!activeDiskVM) return;
 
-setTimeout(
-  refreshLoop,
-  3000
-);
+  const disks = await api(
+    `/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks`
+  );
+
+  diskList.innerHTML = "";
+
+  for (const disk of disks) {
+    const row = document.createElement("div");
+    row.className = "disk-row";
+
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(disk.name)}</strong>
+        <span>${disk.size_gb} GB · qcow2</span>
+      </div>
+      <button
+        class="danger secondary"
+        data-disk-id="${disk.id}"
+        ${disks.length <= 1 || activeDiskVM.running ? "disabled" : ""}>
+        Smazat
+      </button>
+    `;
+
+    diskList.appendChild(row);
+  }
+
+  if (activeDiskVM.running) {
+    diskList.insertAdjacentHTML(
+      "beforeend",
+      '<p class="hint">Pro změny disků nejdřív VM zastav.</p>'
+    );
+  }
+}
+
+
+diskList.addEventListener("click", async event => {
+  const button = event.target.closest("[data-disk-id]");
+  if (!button || !activeDiskVM) return;
+
+  if (!confirm("Opravdu smazat tento disk? Data budou ztracena.")) {
+    return;
+  }
+
+  try {
+    await api(
+      `/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks/${encodeURIComponent(button.dataset.diskId)}`,
+      {method: "DELETE"}
+    );
+    await loadDisks();
+    await loadVMs();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+
+diskForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!activeDiskVM) return;
+
+  try {
+    await api(`/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.getElementById("diskName").value.trim(),
+        size_gb: Number(document.getElementById("diskSize").value)
+      })
+    });
+
+    await loadDisks();
+    await loadVMs();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+
+document.getElementById("closeDiskDialog").addEventListener("click", () => {
+  activeDiskVM = null;
+  diskDialog.close();
+});
+
+
+vmGrid.addEventListener("click", async event => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const vm = vms.find(item => item.id === button.dataset.id);
+  if (!vm) return;
+
+  button.disabled = true;
+
+  try {
+    if (button.dataset.action === "toggle") {
+      if (vm.running) {
+        await stopVM(vm);
+      } else {
+        await startVM(vm);
+      }
+    }
+
+    if (button.dataset.action === "console") {
+      openConsole(vm);
+    }
+
+    if (button.dataset.action === "disks") {
+      await openDisks(vm);
+    }
+
+    if (button.dataset.action === "delete") {
+      await deleteVM(vm);
+    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+
+document.getElementById("newVmBtn").addEventListener("click", () => {
+  vmDialog.showModal();
+});
+
+
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  vmDialog.close();
+});
+
+
+vmForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const submit = vmForm.querySelector('button[type="submit"]');
+  submit.disabled = true;
+
+  try {
+    await api("/api/vms", {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.getElementById("vmName").value.trim(),
+        arch: document.getElementById("vmArch").value,
+        ram: Number(document.getElementById("vmRam").value),
+        cpus: Number(document.getElementById("vmCpu").value),
+        disk: Number(document.getElementById("vmDisk").value)
+      })
+    });
+
+    vmDialog.close();
+    await loadVMs();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+
+  const tick = async () => {
+    if (currentUser) {
+      await loadVMs();
+      refreshTimer = setTimeout(tick, 3000);
+    }
+  };
+
+  refreshTimer = setTimeout(tick, 3000);
+}
+
+
+setAuthMode("login");
+checkSession();

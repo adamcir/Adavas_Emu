@@ -14,6 +14,10 @@ body {
   background: linear-gradient(180deg, #0b0f14 0%, #111822 100%);
 }
 
+.hidden {
+  display: none !important;
+}
+
 button,
 input,
 select {
@@ -30,13 +34,88 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   filter: brightness(0.92);
+}
+
+button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 
 button.secondary {
   background: #202a35;
   color: #e7edf4;
+}
+
+button.danger {
+  background: #5a2228;
+  color: #fff;
+}
+
+button.compact {
+  padding: 7px 11px;
+}
+
+.auth-view {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(430px, 100%);
+  padding: 30px;
+  background: #151d27;
+  border: 1px solid #2b3745;
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
+}
+
+.auth-card h1 {
+  margin: 0;
+}
+
+.auth-card > p {
+  margin-top: 5px;
+  color: #8999aa;
+}
+
+.auth-card small {
+  display: block;
+  margin-top: 24px;
+  color: #708092;
+  text-align: center;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+.auth-tab {
+  background: #202a35;
+  color: #dce5ed;
+}
+
+.auth-tab.active {
+  background: #f0f4f8;
+  color: #111820;
+}
+
+#authSubmit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.error-message {
+  min-height: 20px;
+  margin: 8px 0;
+  color: #ff9a9a;
+  font-size: 14px;
 }
 
 .topbar {
@@ -45,9 +124,10 @@ button.secondary {
   justify-content: space-between;
   padding: 22px 32px;
   border-bottom: 1px solid #26313d;
-  background: rgba(12, 17, 23, 0.92);
+  background: rgba(12, 17, 23, .92);
   position: sticky;
   top: 0;
+  z-index: 10;
   backdrop-filter: blur(10px);
 }
 
@@ -93,7 +173,7 @@ main {
 
 .vm-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
   gap: 18px;
 }
 
@@ -108,6 +188,13 @@ main {
 .vm-card h3 {
   margin: 0 0 6px;
   font-size: 20px;
+}
+
+.vm-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .status {
@@ -151,6 +238,10 @@ main {
   min-width: 90px;
 }
 
+.empty-card {
+  color: #aebcca;
+}
+
 dialog {
   border: 1px solid #314050;
   border-radius: 16px;
@@ -160,15 +251,17 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgba(0, 0, 0, .7);
+  background: rgba(0, 0, 0, .72);
 }
 
-#vmForm {
-  width: min(420px, 90vw);
+#vmForm,
+.dialog-body {
+  width: min(470px, 92vw);
   padding: 24px;
 }
 
-#vmForm h2 {
+#vmForm h2,
+.dialog-body h2 {
   margin-top: 0;
 }
 
@@ -189,11 +282,51 @@ select {
   padding: 10px;
 }
 
-.dialog-actions {
+.dialog-actions,
+.dialog-title-row,
+.console-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
   margin-top: 22px;
+}
+
+.disk-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 24px;
+}
+
+.disk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  background: #0e141b;
+  border: 1px solid #293746;
+  border-radius: 10px;
+}
+
+.disk-row div {
+  display: grid;
+  gap: 3px;
+}
+
+.disk-row span,
+.hint {
+  color: #8293a4;
+  font-size: 13px;
+}
+
+.disk-form {
+  border-top: 1px solid #293746;
+  padding-top: 12px;
 }
 
 .console-dialog {
@@ -204,21 +337,40 @@ select {
 .console-window {
   padding: 16px;
   width: 100%;
+  background: #121922;
+}
+
+.console-header {
+  margin-bottom: 14px;
+}
+
+.console-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .console-frame {
   width: 100%;
   height: min(78vh, 900px);
+  display: block;
   border: 1px solid #2d3945;
   border-radius: 10px;
   background: #000;
 }
 
-.console-header {
+.console-window:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  padding: 12px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
+  flex-direction: column;
+  border-radius: 0;
+}
+
+.console-window:fullscreen .console-frame {
+  flex: 1;
+  height: auto;
+  min-height: 0;
 }
 
 footer {
@@ -229,7 +381,6 @@ footer {
 }
 
 @media (max-width: 640px) {
-
   .topbar,
   .toolbar {
     align-items: flex-start;
@@ -238,5 +389,10 @@ footer {
 
   main {
     padding: 22px;
+  }
+
+  .console-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

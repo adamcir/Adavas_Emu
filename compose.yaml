@@ -19,6 +19,8 @@ services:
     container_name: adavas-emu-backend
     restart: unless-stopped
 
+    environment:
+      - ADAVA_SECURE_COOKIE=0
+
     volumes:
       - ./data:/data
-
