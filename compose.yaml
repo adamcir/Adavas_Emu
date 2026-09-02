@@ -1,0 +1,8 @@
+services:
+  adavas-emu:
+    image: nginx:alpine
+    container_name: adavas-emu
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+

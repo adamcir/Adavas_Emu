@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adava's Emu</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Adava's Emu</h1>
+      <p>Web QEMU Console</p>
+    </div>
+    <div class="user">
+      <span>adava</span>
+      <button class="secondary">Odhlásit</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar">
+      <div>
+        <h2>Moje virtuální stroje</h2>
+        <p>Správa QEMU instancí</p>
+      </div>
+      <button id="newVmBtn">+ Nová VM</button>
+    </section>
+
+    <section id="vmGrid" class="vm-grid"></section>
+  </main>
+
+  <dialog id="vmDialog">
+    <form id="vmForm">
+      <h2>Vytvořit virtuální stroj</h2>
+
+      <label>
+        Název
+        <input id="vmName" type="text" value="Nová VM" required>
+      </label>
+
+      <label>
+        Architektura
+        <select id="vmArch">
+          <option value="x86_64">x86_64</option>
+          <option value="i386">i386</option>
+          <option value="aarch64">aarch64</option>
+          <option value="arm">arm</option>
+        </select>
+      </label>
+
+      <label>
+        RAM
+        <select id="vmRam">
+          <option value="256">256 MB</option>
+          <option value="512" selected>512 MB</option>
+          <option value="1024">1 GB</option>
+          <option value="2048">2 GB</option>
+          <option value="4096">4 GB</option>
+        </select>
+      </label>
+
+      <label>
+        CPU
+        <select id="vmCpu">
+          <option value="1">1 vCPU</option>
+          <option value="2">2 vCPU</option>
+          <option value="4">4 vCPU</option>
+        </select>
+      </label>
+
+      <label>
+        Disk
+        <select id="vmDisk">
+          <option value="5">5 GB</option>
+          <option value="10" selected>10 GB</option>
+          <option value="20">20 GB</option>
+          <option value="40">40 GB</option>
+        </select>
+      </label>
+
+      <div class="dialog-actions">
+        <button type="button" class="secondary" id="cancelBtn">Zrušit</button>
+        <button type="submit">Vytvořit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="consoleDialog" class="console-dialog">
+    <div class="console-window">
+      <div class="console-header">
+        <strong id="consoleTitle">VM Console</strong>
+        <button id="closeConsole" class="secondary">Zavřít</button>
+      </div>
+      <div class="screen">
+        <div>
+          <div class="screen-title">Adava's Emu Console</div>
+          <div class="screen-subtitle">noVNC / QEMU output placeholder</div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <footer>
+    Copyright © 2026 Adava Development · GNU GPLv3
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
