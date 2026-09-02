@@ -1,55 +1,65 @@
 # Adavas_Emu
 
-A web QEMU console by Adava Development.
+Web QEMU manager by Adava Development.
 
-## Prototype features
+## Features
 
-- Login and registration with server-side sessions
-- Password hashing with PBKDF2-HMAC-SHA256
-- Per-user VM ownership
-- Multiple simultaneous x86/x86_64 QEMU instances
-- Multiple qcow2 disks per VM (up to 4 IDE disks in this prototype)
-- Start / stop / delete VM
-- Disk add / delete
-- noVNC console in the web UI
-- Fullscreen / maximize console
-- SQLite metadata database
+- Login / registration and per-user sessions
+- Multiple VM instances per user
+- Multiple qcow2 hard disks
+- VM Settings dialog with **Disks** and **Media**
+- CD/DVD ISO attachment from `/data/media`
+- Floppy image attachment (`.img`, `.ima`, `.flp`, `.raw`) from `/data/media`
+- noVNC console with fullscreen/maximize
+- SQLite metadata storage
 - Docker Compose deployment
 
-## Start
+## Media directory
 
-```bash
-docker compose build
-docker compose up -d
-```
-
-Open:
+Because `./data` is mounted to `/data` in the backend container, place images on the host in:
 
 ```text
-http://SERVER_IP:8080
+./data/media/
 ```
 
-## Updating from the older single-test-VM prototype
+For example:
 
-The old `data/vms/test-vm` layout is not automatically imported. The new version stores
-accounts and VM metadata in `data/adavas_emu.db` and user VM disks in `data/users/`.
-
-Keep a backup of `data/` before upgrading.
-
-## HTTPS
-
-For a public deployment, put Adava's Emu behind HTTPS and set:
-
-```yaml
-environment:
-  - ADAVA_SECURE_COOKIE=1
+```bash
+mkdir -p data/media
+cp ~/Downloads/debian.iso data/media/
+cp ~/Downloads/bootdisk.img data/media/
 ```
 
-Do not expose this prototype directly to the public Internet without additional hardening
-(rate limiting, backups, resource quotas, audit logging, CSRF review, and TLS).
+The VM must be stopped before attaching/ejecting media or changing hard disks.
+
+## Hot update without rebuilding
+
+If your existing backend image already contains Python, QEMU and noVNC, you can update code without rebuilding:
+
+```bash
+docker cp backend/main.py adavas-emu-backend:/app/main.py
+docker restart adavas-emu-backend
+docker restart adavas-emu-frontend
+```
+
+The frontend directory is mounted as a volume, so frontend file edits do not need an image rebuild.
+
+Verify noVNC exists:
+
+```bash
+docker exec adavas-emu-backend ls -l /usr/share/novnc/vnc.html
+curl http://127.0.0.1:8080/api/health
+```
+
+If `/usr/share/novnc/vnc.html` is missing, install it in the current container:
+
+```bash
+docker exec -u root adavas-emu-backend sh -c 'apt-get update && apt-get install -y novnc websockify'
+docker restart adavas-emu-backend
+```
 
 ## License
 
-GNU General Public License v3.0.
+GNU GPLv3.
 
 Copyright © 2026 Adava Development.

@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="Adava's Emu API")
 
-# Frontend and API are normally served from the same nginx origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
@@ -32,6 +31,7 @@ app.add_middleware(
 
 DATA_ROOT = Path("/data")
 VM_ROOT = DATA_ROOT / "users"
+MEDIA_ROOT = DATA_ROOT / "media"
 DB_PATH = DATA_ROOT / "adavas_emu.db"
 
 SESSION_COOKIE = "adava_session"
@@ -42,6 +42,7 @@ MAX_DISKS_PER_VM = 4
 
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
 VM_ROOT.mkdir(parents=True, exist_ok=True)
+MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class AuthPayload(BaseModel):
@@ -60,6 +61,11 @@ class CreateVMPayload(BaseModel):
 class AddDiskPayload(BaseModel):
     name: str = Field(default="Data disk", min_length=1, max_length=64)
     size_gb: int = Field(default=10, ge=1, le=512)
+
+
+class AttachMediaPayload(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(pattern=r"^(cdrom|floppy)$")
 
 
 def db():
@@ -104,6 +110,13 @@ def init_db():
                 path TEXT NOT NULL UNIQUE,
                 size_gb INTEGER NOT NULL,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS media_attachments (
+                vm_id TEXT NOT NULL REFERENCES vms(id) ON DELETE CASCADE,
+                media_type TEXT NOT NULL CHECK(media_type IN ('cdrom', 'floppy')),
+                filename TEXT NOT NULL,
+                PRIMARY KEY (vm_id, media_type)
             );
             """
         )
@@ -152,7 +165,7 @@ def create_session(user_id: int, response: Response):
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=SESSION_DAYS * 24 * 60 * 60,
+        max_age=SESSION_DAYS * 86400,
         httponly=True,
         samesite="lax",
         secure=os.getenv("ADAVA_SECURE_COOKIE", "0") == "1",
@@ -201,7 +214,6 @@ def get_pid(user_id: int, vm_id: str):
     path = pid_file(user_id, vm_id)
     if not path.exists():
         return None
-
     try:
         pid = int(path.read_text().strip())
         os.kill(pid, 0)
@@ -216,10 +228,8 @@ def get_vm_for_user(conn, vm_id: str, user_id: int):
         "SELECT * FROM vms WHERE id = ? AND owner_id = ?",
         (vm_id, user_id),
     ).fetchone()
-
     if not row:
         raise HTTPException(status_code=404, detail="VM not found")
-
     return row
 
 
@@ -242,11 +252,34 @@ def allocate_vnc_port(conn) -> int:
     raise HTTPException(status_code=503, detail="No free VNC ports")
 
 
+def safe_media_path(filename: str, media_type: str) -> Path:
+    if Path(filename).name != filename:
+        raise HTTPException(status_code=400, detail="Invalid media filename")
+
+    suffix = Path(filename).suffix.lower()
+    allowed = {".iso"} if media_type == "cdrom" else {".img", ".ima", ".flp", ".raw"}
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported {media_type} image type")
+
+    path = MEDIA_ROOT / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found in /data/media")
+    return path
+
+
 def serialize_vm(conn, row):
     disks = conn.execute(
         "SELECT * FROM disks WHERE vm_id = ? ORDER BY created_at, id",
         (row["id"],),
     ).fetchall()
+
+    media = {
+        item["media_type"]: item["filename"]
+        for item in conn.execute(
+            "SELECT media_type, filename FROM media_attachments WHERE vm_id = ?",
+            (row["id"],),
+        )
+    }
 
     return {
         "id": row["id"],
@@ -257,6 +290,8 @@ def serialize_vm(conn, row):
         "running": get_pid(row["owner_id"], row["id"]) is not None,
         "disk_count": len(disks),
         "disk": sum(d["size_gb"] for d in disks),
+        "cdrom": media.get("cdrom"),
+        "floppy": media.get("floppy"),
     }
 
 
@@ -286,10 +321,20 @@ def stop_vm_process(user_id: int, vm_id: str):
     return True
 
 
+@app.get("/api/health")
+def health():
+    novnc = Path("/usr/share/novnc/vnc.html")
+    return {
+        "status": "ok",
+        "novnc_installed": novnc.is_file(),
+        "novnc_path": str(novnc),
+        "media_root": str(MEDIA_ROOT),
+    }
+
+
 @app.post("/api/auth/register")
 def register(payload: AuthPayload, response: Response):
     username = payload.username.strip()
-
     if not USERNAME_RE.fullmatch(username):
         raise HTTPException(
             status_code=400,
@@ -304,7 +349,6 @@ def register(payload: AuthPayload, response: Response):
             )
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=409, detail="Username already exists")
-
         user_id = cur.lastrowid
 
     create_session(user_id, response)
@@ -332,7 +376,6 @@ def logout(request: Request, response: Response):
     if token:
         with db() as conn:
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash(token),))
-
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"status": "ok"}
 
@@ -345,13 +388,11 @@ def me(request: Request):
 @app.get("/api/vms")
 def list_vms(request: Request):
     user = require_user(request)
-
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM vms WHERE owner_id = ? ORDER BY created_at",
             (user["id"],),
         ).fetchall()
-
         return [serialize_vm(conn, row) for row in rows]
 
 
@@ -378,16 +419,7 @@ def create_vm(payload: CreateVMPayload, request: Request):
                 INSERT INTO vms(id, owner_id, name, arch, ram_mb, cpus, vnc_port, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    vm_id,
-                    user["id"],
-                    payload.name.strip(),
-                    arch,
-                    payload.ram,
-                    payload.cpus,
-                    vnc_port,
-                    now,
-                ),
+                (vm_id, user["id"], payload.name.strip(), arch, payload.ram, payload.cpus, vnc_port, now),
             )
             conn.execute(
                 """
@@ -402,10 +434,8 @@ def create_vm(payload: CreateVMPayload, request: Request):
             capture_output=True,
             text=True,
         )
-
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "qemu-img failed")
-
     except Exception as exc:
         with db() as conn:
             conn.execute("DELETE FROM vms WHERE id = ? AND owner_id = ?", (vm_id, user["id"]))
@@ -422,14 +452,11 @@ def create_vm(payload: CreateVMPayload, request: Request):
 @app.delete("/api/vms/{vm_id}")
 def delete_vm(vm_id: str, request: Request):
     user = require_user(request)
-
     with db() as conn:
         get_vm_for_user(conn, vm_id, user["id"])
         if get_pid(user["id"], vm_id):
             raise HTTPException(status_code=409, detail="Stop the VM before deleting it")
-
         conn.execute("DELETE FROM vms WHERE id = ?", (vm_id,))
-
     shutil.rmtree(vm_dir(user["id"], vm_id), ignore_errors=True)
     return {"status": "deleted"}
 
@@ -442,6 +469,10 @@ def start_vm(vm_id: str, request: Request):
         row = get_vm_for_user(conn, vm_id, user["id"])
         disks = conn.execute(
             "SELECT * FROM disks WHERE vm_id = ? ORDER BY created_at, id",
+            (vm_id,),
+        ).fetchall()
+        media_rows = conn.execute(
+            "SELECT media_type, filename FROM media_attachments WHERE vm_id = ?",
             (vm_id,),
         ).fetchall()
 
@@ -472,10 +503,14 @@ def start_vm(vm_id: str, request: Request):
     ]
 
     for index, disk in enumerate(disks):
-        args += [
-            "-drive",
-            f"file={disk['path']},format=qcow2,if=ide,index={index}",
-        ]
+        args += ["-drive", f"file={disk['path']},format=qcow2,if=ide,index={index}"]
+
+    for media in media_rows:
+        path = safe_media_path(media["filename"], media["media_type"])
+        if media["media_type"] == "cdrom":
+            args += ["-drive", f"file={path},media=cdrom,readonly=on"]
+        elif media["media_type"] == "floppy":
+            args += ["-drive", f"file={path},format=raw,if=floppy"]
 
     log_handle = open(qemu_log(user["id"], vm_id), "a")
     try:
@@ -504,10 +539,8 @@ def start_vm(vm_id: str, request: Request):
 @app.post("/api/vms/{vm_id}/stop")
 def stop_vm(vm_id: str, request: Request):
     user = require_user(request)
-
     with db() as conn:
         get_vm_for_user(conn, vm_id, user["id"])
-
     stopped = stop_vm_process(user["id"], vm_id)
     return {"status": "stopped" if stopped else "already-stopped"}
 
@@ -515,21 +548,18 @@ def stop_vm(vm_id: str, request: Request):
 @app.get("/api/vms/{vm_id}/disks")
 def list_disks(vm_id: str, request: Request):
     user = require_user(request)
-
     with db() as conn:
         get_vm_for_user(conn, vm_id, user["id"])
         rows = conn.execute(
             "SELECT id, name, size_gb FROM disks WHERE vm_id = ? ORDER BY created_at, id",
             (vm_id,),
         ).fetchall()
-
     return [dict(row) for row in rows]
 
 
 @app.post("/api/vms/{vm_id}/disks")
 def add_disk(vm_id: str, payload: AddDiskPayload, request: Request):
     user = require_user(request)
-
     with db() as conn:
         get_vm_for_user(conn, vm_id, user["id"])
 
@@ -540,12 +570,8 @@ def add_disk(vm_id: str, payload: AddDiskPayload, request: Request):
             "SELECT COUNT(*) AS count FROM disks WHERE vm_id = ?",
             (vm_id,),
         ).fetchone()["count"]
-
         if count >= MAX_DISKS_PER_VM:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Maximum {MAX_DISKS_PER_VM} IDE disks per VM in this prototype",
-            )
+            raise HTTPException(status_code=409, detail=f"Maximum {MAX_DISKS_PER_VM} disks per VM")
 
         disk_id = uuid.uuid4().hex[:12]
         path = vm_dir(user["id"], vm_id) / f"{disk_id}.qcow2"
@@ -554,14 +580,7 @@ def add_disk(vm_id: str, payload: AddDiskPayload, request: Request):
             INSERT INTO disks(id, vm_id, name, path, size_gb, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (
-                disk_id,
-                vm_id,
-                payload.name.strip(),
-                str(path),
-                payload.size_gb,
-                utcnow().isoformat(),
-            ),
+            (disk_id, vm_id, payload.name.strip(), str(path), payload.size_gb, utcnow().isoformat()),
         )
 
     result = subprocess.run(
@@ -582,7 +601,6 @@ def add_disk(vm_id: str, payload: AddDiskPayload, request: Request):
 @app.delete("/api/vms/{vm_id}/disks/{disk_id}")
 def delete_disk(vm_id: str, disk_id: str, request: Request):
     user = require_user(request)
-
     with db() as conn:
         get_vm_for_user(conn, vm_id, user["id"])
 
@@ -593,7 +611,6 @@ def delete_disk(vm_id: str, disk_id: str, request: Request):
             "SELECT COUNT(*) AS count FROM disks WHERE vm_id = ?",
             (vm_id,),
         ).fetchone()["count"]
-
         if count <= 1:
             raise HTTPException(status_code=409, detail="A VM must keep at least one disk")
 
@@ -601,7 +618,6 @@ def delete_disk(vm_id: str, disk_id: str, request: Request):
             "SELECT * FROM disks WHERE id = ? AND vm_id = ?",
             (disk_id, vm_id),
         ).fetchone()
-
         if not row:
             raise HTTPException(status_code=404, detail="Disk not found")
 
@@ -609,6 +625,91 @@ def delete_disk(vm_id: str, disk_id: str, request: Request):
 
     Path(row["path"]).unlink(missing_ok=True)
     return {"status": "deleted"}
+
+
+@app.get("/api/media")
+def list_media(request: Request):
+    require_user(request)
+    result = []
+
+    for path in sorted(MEDIA_ROOT.iterdir()):
+        if not path.is_file():
+            continue
+
+        suffix = path.suffix.lower()
+        if suffix == ".iso":
+            media_type = "cdrom"
+        elif suffix in {".img", ".ima", ".flp", ".raw"}:
+            media_type = "floppy"
+        else:
+            continue
+
+        result.append(
+            {
+                "filename": path.name,
+                "type": media_type,
+                "size": path.stat().st_size,
+            }
+        )
+
+    return result
+
+
+@app.get("/api/vms/{vm_id}/media")
+def get_vm_media(vm_id: str, request: Request):
+    user = require_user(request)
+    with db() as conn:
+        get_vm_for_user(conn, vm_id, user["id"])
+        rows = conn.execute(
+            "SELECT media_type, filename FROM media_attachments WHERE vm_id = ?",
+            (vm_id,),
+        ).fetchall()
+
+    return {row["media_type"]: row["filename"] for row in rows}
+
+
+@app.post("/api/vms/{vm_id}/media")
+def attach_media(vm_id: str, payload: AttachMediaPayload, request: Request):
+    user = require_user(request)
+
+    with db() as conn:
+        get_vm_for_user(conn, vm_id, user["id"])
+
+        if get_pid(user["id"], vm_id):
+            raise HTTPException(status_code=409, detail="Stop the VM before changing media")
+
+        safe_media_path(payload.filename, payload.media_type)
+
+        conn.execute(
+            """
+            INSERT INTO media_attachments(vm_id, media_type, filename)
+            VALUES (?, ?, ?)
+            ON CONFLICT(vm_id, media_type)
+            DO UPDATE SET filename = excluded.filename
+            """,
+            (vm_id, payload.media_type, payload.filename),
+        )
+
+    return {"status": "attached"}
+
+
+@app.delete("/api/vms/{vm_id}/media/{media_type}")
+def detach_media(vm_id: str, media_type: str, request: Request):
+    user = require_user(request)
+    if media_type not in {"cdrom", "floppy"}:
+        raise HTTPException(status_code=400, detail="Invalid media type")
+
+    with db() as conn:
+        get_vm_for_user(conn, vm_id, user["id"])
+        if get_pid(user["id"], vm_id):
+            raise HTTPException(status_code=409, detail="Stop the VM before changing media")
+
+        conn.execute(
+            "DELETE FROM media_attachments WHERE vm_id = ? AND media_type = ?",
+            (vm_id, media_type),
+        )
+
+    return {"status": "detached"}
 
 
 @app.websocket("/ws/vms/{vm_id}/console")
@@ -648,11 +749,9 @@ async def vm_console(websocket: WebSocket, vm_id: str):
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
                 return
-
             data = message.get("bytes")
             if data is None and message.get("text") is not None:
                 data = message["text"].encode("latin1")
-
             if data:
                 writer.write(data)
                 await writer.drain()
@@ -668,9 +767,7 @@ async def vm_console(websocket: WebSocket, vm_id: str):
         asyncio.create_task(ws_to_vnc()),
         asyncio.create_task(vnc_to_ws()),
     }
-
     _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-
     for task in pending:
         task.cancel()
 
@@ -682,7 +779,6 @@ async def vm_console(websocket: WebSocket, vm_id: str):
 
 
 NOVNC_PATH = Path("/usr/share/novnc")
-
 if NOVNC_PATH.exists():
     app.mount(
         "/novnc",

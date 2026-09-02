@@ -396,3 +396,62 @@ footer {
     flex-direction: column;
   }
 }
+
+
+.settings-dialog .settings-body {
+  width: min(700px, 94vw);
+}
+
+.settings-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 20px 0;
+}
+
+.settings-tab {
+  background: #202a35;
+  color: #dce5ed;
+}
+
+.settings-tab.active {
+  background: #f0f4f8;
+  color: #111820;
+}
+
+.media-device {
+  padding: 16px;
+  margin: 14px 0;
+  border: 1px solid #293746;
+  border-radius: 12px;
+  background: #0e141b;
+}
+
+.media-device h3 {
+  margin-top: 0;
+}
+
+.media-current {
+  margin-bottom: 12px;
+  color: #aebcca;
+  overflow-wrap: anywhere;
+}
+
+.media-actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+code {
+  background: #0b1016;
+  border-radius: 5px;
+  padding: 2px 5px;
+}
+
+@media (max-width: 640px) {
+  .media-actions {
+    grid-template-columns: 1fr;
+  }
+}

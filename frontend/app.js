@@ -13,10 +13,19 @@ const vmGrid = document.getElementById("vmGrid");
 const vmDialog = document.getElementById("vmDialog");
 const vmForm = document.getElementById("vmForm");
 
-const diskDialog = document.getElementById("diskDialog");
-const diskDialogTitle = document.getElementById("diskDialogTitle");
+const settingsDialog = document.getElementById("settingsDialog");
+const settingsDialogTitle = document.getElementById("settingsDialogTitle");
 const diskList = document.getElementById("diskList");
 const diskForm = document.getElementById("diskForm");
+const disksTab = document.getElementById("disksTab");
+const mediaTab = document.getElementById("mediaTab");
+const disksPanel = document.getElementById("disksPanel");
+const mediaPanel = document.getElementById("mediaPanel");
+
+const cdromCurrent = document.getElementById("cdromCurrent");
+const floppyCurrent = document.getElementById("floppyCurrent");
+const cdromSelect = document.getElementById("cdromSelect");
+const floppySelect = document.getElementById("floppySelect");
 
 const consoleDialog = document.getElementById("consoleDialog");
 const consoleWindow = document.getElementById("consoleWindow");
@@ -27,7 +36,7 @@ const maximizeConsole = document.getElementById("maximizeConsole");
 let authMode = "login";
 let currentUser = null;
 let vms = [];
-let activeDiskVM = null;
+let activeVM = null;
 let refreshTimer = null;
 
 
@@ -45,14 +54,10 @@ async function api(url, options = {}) {
     throw new Error("Nejste přihlášen.");
   }
 
-  let data = null;
   const contentType = response.headers.get("content-type") || "";
-
-  if (contentType.includes("application/json")) {
-    data = await response.json();
-  } else {
-    data = await response.text();
-  }
+  const data = contentType.includes("application/json")
+    ? await response.json()
+    : await response.text();
 
   if (!response.ok) {
     const message =
@@ -165,7 +170,6 @@ async function loadVMs() {
     renderVMs();
   } catch (error) {
     if (!currentUser) return;
-
     vmGrid.innerHTML = `
       <article class="vm-card">
         <h3>Chyba backendu</h3>
@@ -193,6 +197,11 @@ function renderVMs() {
     const card = document.createElement("article");
     card.className = `vm-card ${vm.running ? "running" : ""}`;
 
+    const mediaBits = [
+      vm.cdrom ? `CD: ${escapeHtml(vm.cdrom)}` : null,
+      vm.floppy ? `FDD: ${escapeHtml(vm.floppy)}` : null
+    ].filter(Boolean).join("<br>");
+
     card.innerHTML = `
       <div class="vm-card-title">
         <div>
@@ -210,6 +219,7 @@ function renderVMs() {
         <span>RAM</span><strong>${vm.ram} MB</strong>
         <span>CPU</span><strong>${vm.cpus} vCPU</strong>
         <span>Disky</span><strong>${vm.disk_count} / ${vm.disk} GB</strong>
+        <span>Média</span><strong>${mediaBits || "—"}</strong>
       </div>
 
       <div class="vm-actions">
@@ -221,8 +231,8 @@ function renderVMs() {
           Console
         </button>
 
-        <button class="secondary" data-action="disks" data-id="${vm.id}">
-          Disky
+        <button class="secondary" data-action="settings" data-id="${vm.id}">
+          Nastavení
         </button>
       </div>
     `;
@@ -267,7 +277,11 @@ function openConsole(vm) {
 
   consoleTitle.textContent = `${vm.name} — Console`;
 
-  const wsPath = `ws/vms/${encodeURIComponent(vm.id)}/console`;
+  /*
+   * noVNC běží pod /novnc/. Relativní ../ws/... se z něj přeloží
+   * na /ws/... místo chybného /novnc/ws/... .
+   */
+  const wsPath = `../ws/vms/${encodeURIComponent(vm.id)}/console`;
 
   consoleFrame.src =
     "/novnc/vnc.html" +
@@ -316,21 +330,35 @@ consoleDialog.addEventListener("cancel", event => {
 });
 
 
-async function openDisks(vm) {
-  activeDiskVM = vm;
-  diskDialogTitle.textContent = `${vm.name} — Disky`;
+function setSettingsTab(tab) {
+  const showDisks = tab === "disks";
+  disksTab.classList.toggle("active", showDisks);
+  mediaTab.classList.toggle("active", !showDisks);
+  disksPanel.classList.toggle("hidden", !showDisks);
+  mediaPanel.classList.toggle("hidden", showDisks);
+}
+
+
+disksTab.addEventListener("click", () => setSettingsTab("disks"));
+mediaTab.addEventListener("click", async () => {
+  setSettingsTab("media");
+  await loadMediaPanel();
+});
+
+
+async function openSettings(vm) {
+  activeVM = vm;
+  settingsDialogTitle.textContent = `${vm.name} — Nastavení`;
+  setSettingsTab("disks");
   await loadDisks();
-  diskDialog.showModal();
+  settingsDialog.showModal();
 }
 
 
 async function loadDisks() {
-  if (!activeDiskVM) return;
+  if (!activeVM) return;
 
-  const disks = await api(
-    `/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks`
-  );
-
+  const disks = await api(`/api/vms/${encodeURIComponent(activeVM.id)}/disks`);
   diskList.innerHTML = "";
 
   for (const disk of disks) {
@@ -345,7 +373,7 @@ async function loadDisks() {
       <button
         class="danger secondary"
         data-disk-id="${disk.id}"
-        ${disks.length <= 1 || activeDiskVM.running ? "disabled" : ""}>
+        ${disks.length <= 1 || activeVM.running ? "disabled" : ""}>
         Smazat
       </button>
     `;
@@ -353,7 +381,7 @@ async function loadDisks() {
     diskList.appendChild(row);
   }
 
-  if (activeDiskVM.running) {
+  if (activeVM.running) {
     diskList.insertAdjacentHTML(
       "beforeend",
       '<p class="hint">Pro změny disků nejdřív VM zastav.</p>'
@@ -362,9 +390,89 @@ async function loadDisks() {
 }
 
 
+async function loadMediaPanel() {
+  if (!activeVM) return;
+
+  const [available, attached] = await Promise.all([
+    api("/api/media"),
+    api(`/api/vms/${encodeURIComponent(activeVM.id)}/media`)
+  ]);
+
+  cdromCurrent.textContent = attached.cdrom || "Žádné médium";
+  floppyCurrent.textContent = attached.floppy || "Žádné médium";
+
+  const cds = available.filter(item => item.type === "cdrom");
+  const floppies = available.filter(item => item.type === "floppy");
+
+  cdromSelect.innerHTML = cds.length
+    ? cds.map(item => `<option value="${escapeHtml(item.filename)}">${escapeHtml(item.filename)}</option>`).join("")
+    : '<option value="">Žádná ISO v /data/media</option>';
+
+  floppySelect.innerHTML = floppies.length
+    ? floppies.map(item => `<option value="${escapeHtml(item.filename)}">${escapeHtml(item.filename)}</option>`).join("")
+    : '<option value="">Žádná disketa v /data/media</option>';
+
+  const disabled = activeVM.running;
+  for (const id of ["attachCdrom", "ejectCdrom", "attachFloppy", "ejectFloppy"]) {
+    document.getElementById(id).disabled = disabled;
+  }
+  cdromSelect.disabled = disabled || cds.length === 0;
+  floppySelect.disabled = disabled || floppies.length === 0;
+}
+
+
+async function attachMedia(type, select) {
+  if (!activeVM || !select.value) return;
+
+  await api(`/api/vms/${encodeURIComponent(activeVM.id)}/media`, {
+    method: "POST",
+    body: JSON.stringify({
+      filename: select.value,
+      media_type: type
+    })
+  });
+
+  await loadMediaPanel();
+  await loadVMs();
+}
+
+
+async function ejectMedia(type) {
+  if (!activeVM) return;
+
+  await api(`/api/vms/${encodeURIComponent(activeVM.id)}/media/${type}`, {
+    method: "DELETE"
+  });
+
+  await loadMediaPanel();
+  await loadVMs();
+}
+
+
+document.getElementById("attachCdrom").addEventListener("click", async () => {
+  try { await attachMedia("cdrom", cdromSelect); }
+  catch (error) { alert(error.message); }
+});
+
+document.getElementById("ejectCdrom").addEventListener("click", async () => {
+  try { await ejectMedia("cdrom"); }
+  catch (error) { alert(error.message); }
+});
+
+document.getElementById("attachFloppy").addEventListener("click", async () => {
+  try { await attachMedia("floppy", floppySelect); }
+  catch (error) { alert(error.message); }
+});
+
+document.getElementById("ejectFloppy").addEventListener("click", async () => {
+  try { await ejectMedia("floppy"); }
+  catch (error) { alert(error.message); }
+});
+
+
 diskList.addEventListener("click", async event => {
   const button = event.target.closest("[data-disk-id]");
-  if (!button || !activeDiskVM) return;
+  if (!button || !activeVM) return;
 
   if (!confirm("Opravdu smazat tento disk? Data budou ztracena.")) {
     return;
@@ -372,7 +480,7 @@ diskList.addEventListener("click", async event => {
 
   try {
     await api(
-      `/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks/${encodeURIComponent(button.dataset.diskId)}`,
+      `/api/vms/${encodeURIComponent(activeVM.id)}/disks/${encodeURIComponent(button.dataset.diskId)}`,
       {method: "DELETE"}
     );
     await loadDisks();
@@ -385,10 +493,10 @@ diskList.addEventListener("click", async event => {
 
 diskForm.addEventListener("submit", async event => {
   event.preventDefault();
-  if (!activeDiskVM) return;
+  if (!activeVM) return;
 
   try {
-    await api(`/api/vms/${encodeURIComponent(activeDiskVM.id)}/disks`, {
+    await api(`/api/vms/${encodeURIComponent(activeVM.id)}/disks`, {
       method: "POST",
       body: JSON.stringify({
         name: document.getElementById("diskName").value.trim(),
@@ -404,9 +512,9 @@ diskForm.addEventListener("submit", async event => {
 });
 
 
-document.getElementById("closeDiskDialog").addEventListener("click", () => {
-  activeDiskVM = null;
-  diskDialog.close();
+document.getElementById("closeSettingsDialog").addEventListener("click", () => {
+  activeVM = null;
+  settingsDialog.close();
 });
 
 
@@ -421,19 +529,16 @@ vmGrid.addEventListener("click", async event => {
 
   try {
     if (button.dataset.action === "toggle") {
-      if (vm.running) {
-        await stopVM(vm);
-      } else {
-        await startVM(vm);
-      }
+      if (vm.running) await stopVM(vm);
+      else await startVM(vm);
     }
 
     if (button.dataset.action === "console") {
       openConsole(vm);
     }
 
-    if (button.dataset.action === "disks") {
-      await openDisks(vm);
+    if (button.dataset.action === "settings") {
+      await openSettings(vm);
     }
 
     if (button.dataset.action === "delete") {

@@ -120,33 +120,64 @@
     </form>
   </dialog>
 
-  <dialog id="diskDialog" class="disk-dialog">
-    <div class="dialog-body">
+  <dialog id="settingsDialog" class="settings-dialog">
+    <div class="dialog-body settings-body">
       <div class="dialog-title-row">
-        <h2 id="diskDialogTitle">Disky</h2>
-        <button id="closeDiskDialog" class="secondary" type="button">Zavřít</button>
+        <h2 id="settingsDialogTitle">Nastavení VM</h2>
+        <button id="closeSettingsDialog" class="secondary" type="button">Zavřít</button>
       </div>
 
-      <div id="diskList" class="disk-list"></div>
+      <div class="settings-tabs">
+        <button id="disksTab" class="settings-tab active" type="button">Disky</button>
+        <button id="mediaTab" class="settings-tab" type="button">Média</button>
+      </div>
 
-      <form id="diskForm" class="disk-form">
-        <h3>Přidat disk</h3>
-        <label>
-          Název
-          <input id="diskName" value="Data disk" maxlength="64" required>
-        </label>
-        <label>
-          Velikost
-          <select id="diskSize">
-            <option value="5">5 GB</option>
-            <option value="10" selected>10 GB</option>
-            <option value="20">20 GB</option>
-            <option value="40">40 GB</option>
-            <option value="80">80 GB</option>
-          </select>
-        </label>
-        <button type="submit">Přidat disk</button>
-      </form>
+      <section id="disksPanel">
+        <div id="diskList" class="disk-list"></div>
+
+        <form id="diskForm" class="disk-form">
+          <h3>Přidat disk</h3>
+          <label>
+            Název
+            <input id="diskName" value="Data disk" maxlength="64" required>
+          </label>
+          <label>
+            Velikost
+            <select id="diskSize">
+              <option value="5">5 GB</option>
+              <option value="10" selected>10 GB</option>
+              <option value="20">20 GB</option>
+              <option value="40">40 GB</option>
+              <option value="80">80 GB</option>
+            </select>
+          </label>
+          <button type="submit">Přidat disk</button>
+        </form>
+      </section>
+
+      <section id="mediaPanel" class="hidden">
+        <p class="hint">Média se načítají z <code>/data/media</code> v backend containeru (na hostu <code>./data/media</code>).</p>
+
+        <div class="media-device">
+          <h3>CD/DVD</h3>
+          <div id="cdromCurrent" class="media-current">Žádné médium</div>
+          <div class="media-actions">
+            <select id="cdromSelect"></select>
+            <button id="attachCdrom" type="button">Připojit</button>
+            <button id="ejectCdrom" class="secondary" type="button">Vysunout</button>
+          </div>
+        </div>
+
+        <div class="media-device">
+          <h3>Disketa</h3>
+          <div id="floppyCurrent" class="media-current">Žádné médium</div>
+          <div class="media-actions">
+            <select id="floppySelect"></select>
+            <button id="attachFloppy" type="button">Připojit</button>
+            <button id="ejectFloppy" class="secondary" type="button">Vysunout</button>
+          </div>
+        </div>
+      </section>
     </div>
   </dialog>
 
